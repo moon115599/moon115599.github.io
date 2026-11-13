@@ -1,1 +1,453 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="description" content="Web site created using create-react-app"/><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap" rel="stylesh eet"><style>*{font-family:Roboto,sans-serif;margin:0}</style><title>React App</title><script defer="defer" src="/static/js/main.01eaa759.js"></script></head><body><noscript>You need to enable JavaScript to run this app.</noscript><div id="root"></div></body></html>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>강릉 여행 일정</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script>
+/* ============================================================
+   설정 (여기 3곳만 채우면 됩니다)
+   ============================================================ */
+
+// 1) 카카오 개발자 콘솔 > 내 애플리케이션 > 앱 키 > "JavaScript 키"
+const KAKAO_JS_KEY = "여기에_카카오_JavaScript_키";
+
+// 2) Firebase 콘솔 > 프로젝트 설정 > 내 앱(웹) > firebaseConfig 에서 복사
+//    databaseURL 이 반드시 있어야 합니다 (Realtime Database 생성 후 표시됨).
+const FIREBASE_CONFIG = {
+  apiKey: "여기에_apiKey",
+  databaseURL: "여기에_databaseURL",
+  projectId: "여기에_projectId"
+};
+
+// 3) 여행 정보. TRIP_ID 는 일정 저장 주소라서 남이 추측하기 어려운 값으로 두세요.
+const TRIP_ID = "gangneung-270115-k7q2x9";
+const TRIP_TITLE = "강릉 여행";
+const DAYS = [
+  { n: 1, date: "1.15", dow: "금" },
+  { n: 2, date: "1.16", dow: "토" },
+  { n: 3, date: "1.17", dow: "일" }
+];
+const HOME = { lat: 37.7636, lng: 128.8996 }; // 강릉역 (지도 시작 위치, 검색 기준점)
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+:root{
+  /* 겨울 동해: 짙은 바다색 바탕 글자, 날짜별 핀 색 3가지. 위는 지도, 아래는 일정 타임라인. */
+  --ink:#14222e; --sub:#5f6f7c; --line:#e3e8ec; --bg:#f4f6f8; --card:#fff;
+  --sea:#0d5c7a; --sea-soft:#e3f0f5;
+  --d1:#e4572e; --d2:#0d7a6b; --d3:#4a4fc4;
+  --day:var(--d1);
+  --font:"Pretendard",-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--font);color:var(--ink);background:var(--bg);display:flex;flex-direction:column;overflow:hidden;-webkit-tap-highlight-color:transparent}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--sea);outline-offset:2px}
+[hidden]{display:none!important}
+
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);flex:none}
+header .t{flex:1;min-width:0}
+header h1{font-size:18px;font-weight:700;letter-spacing:-.02em}
+header .d{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums;display:flex;gap:8px;align-items:center}
+.dot{width:7px;height:7px;border-radius:50%;background:#b8c2ca;display:inline-block}
+.dot.on{background:#1fa971}
+.pill{padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:14px;font-weight:600}
+.pill.solid{background:var(--sea);border-color:var(--sea);color:#fff}
+
+#mapWrap{position:relative;flex:none;height:38%;transition:height .2s;background:#dfe8ec}
+body.bigmap #mapWrap{height:62%}
+#map,#smap{width:100%;height:100%}
+.mapbtn{position:absolute;right:12px;bottom:12px;z-index:5;background:var(--card);border-radius:999px;padding:8px 12px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(20,34,46,.2)}
+@media (prefers-reduced-motion:reduce){#mapWrap{transition:none}}
+
+.tabs{display:flex;gap:8px;padding:12px 16px 8px;background:var(--card);flex:none;align-items:center}
+.tab{padding:9px 14px;border-radius:999px;border:1px solid var(--line);font-size:14px;font-weight:700;color:var(--sub);line-height:1.1;text-align:center}
+.tab small{display:block;font-size:11px;font-weight:500;margin-top:2px;font-variant-numeric:tabular-nums}
+.tab[aria-selected="true"]{background:var(--day);border-color:var(--day);color:#fff}
+.tabs .sp{flex:1}
+
+main{flex:1;overflow-y:auto;background:var(--card);padding:4px 16px 110px}
+.empty{padding:36px 8px;text-align:center;color:var(--sub);font-size:14px;line-height:1.6}
+ol.tl{list-style:none;display:flex;flex-direction:column}
+.it{display:flex;gap:12px;position:relative;padding:10px 0}
+.it .num{flex:none;width:28px;height:28px;border-radius:50%;background:var(--day);color:#fff;font-size:13px;font-weight:700;display:grid;place-items:center;z-index:1;font-variant-numeric:tabular-nums}
+.it.memo .num{background:var(--card);border:2px solid var(--day);color:var(--day);font-size:12px}
+.it::before{content:"";position:absolute;left:13px;top:0;bottom:0;width:2px;background:var(--line)}
+.it:first-child::before{top:14px}.it:last-child::before{bottom:calc(100% - 14px)}
+.it .body{flex:1;min-width:0;text-align:left;padding:2px 0}
+.it .nm{font-size:16px;font-weight:700;letter-spacing:-.01em;overflow-wrap:anywhere}
+.it .time{font-size:12px;font-weight:700;color:var(--day);font-variant-numeric:tabular-nums;margin-right:6px}
+.it .meta{font-size:12.5px;color:var(--sub);margin-top:2px;overflow-wrap:anywhere}
+.it .note{font-size:13.5px;margin-top:6px;padding:8px 10px;background:var(--bg);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.it .acts{flex:none;display:flex;gap:4px;align-items:flex-start}
+.ib{width:36px;height:36px;border-radius:10px;background:var(--bg);font-size:15px;display:grid;place-items:center;color:var(--ink)}
+.ib:disabled{opacity:.3}
+.ib.del{color:#c0392b}
+.gap{font-size:11.5px;color:var(--sub);padding:0 0 0 40px;font-variant-numeric:tabular-nums}
+
+.fab{position:fixed;right:18px;bottom:22px;z-index:20;display:flex;gap:8px}
+.fab button{height:52px;padding:0 20px;border-radius:999px;font-weight:700;font-size:15px;box-shadow:0 4px 14px rgba(20,34,46,.25)}
+.fab .add{background:var(--sea);color:#fff}
+.fab .mm{background:var(--card);border:1px solid var(--line)}
+
+/* 검색 화면 */
+#search{position:fixed;inset:0;z-index:40;background:var(--card);display:flex;flex-direction:column}
+.sbar{display:flex;gap:8px;padding:10px 12px;align-items:center;flex:none}
+.sbar input{flex:1;min-width:0;height:44px;border-radius:999px;border:1px solid var(--line);background:var(--bg);padding:0 16px;font-size:16px}
+.chips{display:flex;gap:6px;padding:0 12px 10px;overflow-x:auto;flex:none}
+.chip{flex:none;padding:6px 12px;border-radius:999px;background:var(--sea-soft);color:var(--sea);font-size:13px;font-weight:600}
+#smapWrap{height:32%;flex:none;background:#dfe8ec}
+#sres{flex:1;overflow-y:auto;padding:4px 16px 24px}
+.res{display:flex;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.res .body{flex:1;min-width:0;text-align:left}
+.res .nm{font-size:15.5px;font-weight:700;overflow-wrap:anywhere}
+.res .meta{font-size:12.5px;color:var(--sub);margin-top:2px;overflow-wrap:anywhere}
+.res a{font-size:12.5px;color:var(--sea);font-weight:600}
+.res .addb{flex:none;padding:9px 14px;border-radius:999px;background:var(--sea-soft);color:var(--sea);font-weight:700;font-size:14px}
+.res .addb.done{background:var(--bg);color:var(--sub)}
+
+/* 편집 시트 */
+#sheetBg{position:fixed;inset:0;z-index:50;background:rgba(20,34,46,.45);display:flex;align-items:flex-end;justify-content:center}
+#sheet{background:var(--card);width:100%;max-width:560px;border-radius:20px 20px 0 0;padding:20px 18px 24px;display:flex;flex-direction:column;gap:14px;max-height:90%;overflow-y:auto}
+#sheet h2{font-size:18px;font-weight:700;overflow-wrap:anywhere}
+#sheet label{font-size:12.5px;font-weight:600;color:var(--sub);display:flex;flex-direction:column;gap:6px}
+#sheet input,#sheet select,#sheet textarea{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:16px;background:var(--card);width:100%}
+#sheet textarea{min-height:84px;resize:vertical}
+.row{display:flex;gap:10px}.row>*{flex:1;min-width:0}
+.links{display:flex;gap:8px;flex-wrap:wrap}
+.links a{padding:8px 12px;border-radius:999px;background:var(--sea-soft);color:var(--sea);font-size:13px;font-weight:600;text-decoration:none}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.btns button{flex:1;height:46px;border-radius:12px;font-weight:700;min-width:90px}
+.b1{background:var(--sea);color:#fff}.b2{background:var(--bg)}.b3{background:#fdecea;color:#c0392b}
+
+#toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);z-index:60;background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:13.5px;max-width:86%;text-align:center}
+#notice{background:#fff7e0;border-bottom:1px solid #f0dfa8;padding:10px 16px;font-size:13px;line-height:1.5;flex:none}
+#notice code{background:#fff;padding:1px 5px;border-radius:4px;font-size:12px;word-break:break-all}
+
+.pin{background:var(--c);color:#fff;font:700 13px var(--font);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.pin span{transform:rotate(45deg)}
+.pin.s{width:22px;height:22px;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <div class="t">
+    <h1 id="title"></h1>
+    <div class="d"><span id="range"></span><span><i class="dot" id="dot"></i> <span id="sync">연결 중</span></span></div>
+  </div>
+  <button class="pill" id="shareBtn" type="button">링크 복사</button>
+</header>
+<div id="notice" hidden></div>
+
+<div id="mapWrap">
+  <div id="map"></div>
+  <button class="mapbtn" id="mapSize" type="button">지도 크게</button>
+</div>
+
+<div class="tabs" role="tablist" id="tabs"></div>
+<main><ol class="tl" id="list"></ol></main>
+
+<div class="fab">
+  <button class="mm" id="memoBtn" type="button">메모 추가</button>
+  <button class="add" id="addBtn" type="button">+ 장소 추가</button>
+</div>
+
+<div id="search" hidden>
+  <form class="sbar" id="sform">
+    <button class="ib" type="button" id="sclose" aria-label="검색 닫기">←</button>
+    <input id="q" type="search" placeholder="관광지/맛집 검색 (예: 회, 순두부, 안목해변)" autocomplete="off" enterkeyhint="search">
+    <button class="pill solid" type="submit">검색</button>
+  </form>
+  <div class="chips" id="chips"></div>
+  <div id="smapWrap"><div id="smap"></div></div>
+  <div id="sres"></div>
+</div>
+
+<div id="sheetBg" hidden><div id="sheet" role="dialog" aria-modal="true"></div></div>
+<div id="toast" hidden></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const el = (tag, props = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids) if (c) e.append(c);
+  return e;
+};
+const DAY_COLORS = ["#e4572e", "#0d7a6b", "#4a4fc4", "#b0457a", "#7a5c0d"];
+const dayColor = n => DAY_COLORS[(n - 1) % DAY_COLORS.length];
+const isSet = v => typeof v === "string" && v && !v.includes("여기에");
+
+let items = [];          // [{id, day, ord, type, name, cat, addr, lat, lng, url, phone, time, memo}]
+let curDay = 1, editMode = false;
+let map = null, smap = null, overlays = [], line = null, soverlays = [], places = null;
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2400);
+}
+function notice(html) { const n = $("notice"); n.innerHTML = html; n.hidden = false; }
+
+/* ---------- 저장소: Firebase 실시간 DB (없으면 이 기기에만 저장) ---------- */
+const store = (() => {
+  const useFb = isSet(FIREBASE_CONFIG.databaseURL) && window.firebase;
+  if (useFb) {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const ref = firebase.database().ref("trips/" + TRIP_ID + "/items");
+    firebase.database().ref(".info/connected").on("value", s => setSync(!!s.val(), "실시간 공유 중", "오프라인"));
+    const fail = e => toast("저장 실패: " + (e && e.code === "PERMISSION_DENIED" ? "Firebase 규칙을 확인하세요" : "네트워크를 확인하세요"));
+    return {
+      shared: true,
+      listen(cb) { ref.on("value", s => { const v = s.val() || {}; cb(Object.entries(v).map(([id, o]) => ({ ...o, id }))); }, fail); },
+      add(o) { return ref.push(o).catch(fail); },
+      update(id, p) { return ref.child(id).update(p).catch(fail); },
+      remove(id) { return ref.child(id).remove().catch(fail); }
+    };
+  }
+  const KEY = "trip:" + TRIP_ID;
+  let arr = []; try { arr = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
+  let cb = () => {};
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(arr)); } catch (e) {} cb(arr.slice()); };
+  return {
+    shared: false,
+    listen(f) { cb = f; f(arr.slice()); },
+    add(o) { arr.push({ ...o, id: "l" + Date.now() + Math.random().toString(36).slice(2, 6) }); save(); },
+    update(id, p) { arr = arr.map(x => x.id === id ? { ...x, ...p } : x); save(); },
+    remove(id) { arr = arr.filter(x => x.id !== id); save(); }
+  };
+})();
+function setSync(on, a, b) { $("dot").classList.toggle("on", on); $("sync").textContent = on ? a : b; }
+
+/* ---------- 일정 목록 ---------- */
+const dayItems = d => items.filter(x => x.day === d).sort((a, b) => a.ord - b.ord);
+const hasPos = x => x.type === "place" && isFinite(x.lat) && isFinite(x.lng);
+function km(a, b) {
+  const R = 6371, r = Math.PI / 180, dLa = (b.lat - a.lat) * r, dLo = (b.lng - a.lng) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function renderTabs() {
+  const box = $("tabs"); box.textContent = "";
+  for (const d of DAYS) {
+    const n = items.filter(x => x.day === d.n && x.type === "place").length;
+    box.append(el("button", { class: "tab", role: "tab", type: "button", "aria-selected": String(d.n === curDay),
+      onclick: () => { curDay = d.n; render(true); } },
+      document.createTextNode("Day " + d.n), el("small", { text: d.date + " " + d.dow + (n ? " · " + n + "곳" : "") })));
+  }
+  box.append(el("span", { class: "sp" }),
+    el("button", { class: "pill" + (editMode ? " solid" : ""), type: "button", text: editMode ? "완료" : "편집",
+      onclick: () => { editMode = !editMode; render(false); } }));
+}
+
+function renderList() {
+  const list = $("list"); list.textContent = "";
+  const arr = dayItems(curDay);
+  if (!arr.length) {
+    list.append(el("li", { class: "empty", text: "Day " + curDay + " 일정이 아직 없어요.\n아래 ‘+ 장소 추가’로 검색해서 넣어 보세요." }));
+    list.firstChild.style.whiteSpace = "pre-line";
+    return;
+  }
+  let n = 0, prev = null;
+  arr.forEach((x, i) => {
+    const place = x.type === "place";
+    if (place && prev && hasPos(prev) && hasPos(x))
+      list.append(el("li", { class: "gap", text: "↓ 직선거리 " + km(prev, x).toFixed(1) + "km" }));
+    const body = el("button", { class: "body", type: "button", onclick: () => { if (hasPos(x)) focusOn(x); openSheet(x); } },
+      el("div", { class: "nm" }, x.time ? el("span", { class: "time", text: x.time }) : null, document.createTextNode(place ? x.name : (x.memo || "메모"))),
+      place && (x.cat || x.addr) ? el("div", { class: "meta", text: [x.cat, x.addr].filter(Boolean).join(" · ") }) : null,
+      place && x.memo ? el("div", { class: "note", text: x.memo }) : null);
+    const acts = el("div", { class: "acts" });
+    if (editMode) acts.append(
+      el("button", { class: "ib", type: "button", "aria-label": "위로", text: "↑", disabled: i === 0, onclick: () => swap(arr, i, i - 1) }),
+      el("button", { class: "ib", type: "button", "aria-label": "아래로", text: "↓", disabled: i === arr.length - 1, onclick: () => swap(arr, i, i + 1) }),
+      el("button", { class: "ib del", type: "button", "aria-label": "삭제", text: "✕", onclick: () => { store.remove(x.id); toast("삭제했어요"); } }));
+    list.append(el("li", { class: "it" + (place ? "" : " memo") }, el("span", { class: "num", text: place ? String(++n) : "✎" }), body, acts));
+    if (place) prev = x;
+  });
+}
+function swap(arr, i, j) {
+  const a = arr[i], b = arr[j]; if (!a || !b) return;
+  store.update(a.id, { ord: b.ord }); store.update(b.id, { ord: a.ord });
+}
+
+function render(fit) {
+  document.documentElement.style.setProperty("--day", dayColor(curDay));
+  renderTabs(); renderList(); drawMap(fit);
+}
+
+/* ---------- 지도 ---------- */
+function pin(n, color, small) { return el("div", { class: "pin" + (small ? " s" : ""), style: "--c:" + color }, el("span", { text: String(n) })); }
+function drawMap(fit) {
+  if (!map) return;
+  overlays.forEach(o => o.setMap(null)); overlays = [];
+  if (line) { line.setMap(null); line = null; }
+  const pts = dayItems(curDay).filter(hasPos), path = [], bounds = new kakao.maps.LatLngBounds();
+  pts.forEach((x, i) => {
+    const pos = new kakao.maps.LatLng(x.lat, x.lng); path.push(pos); bounds.extend(pos);
+    const node = pin(i + 1, dayColor(curDay)); node.addEventListener("click", () => openSheet(x));
+    overlays.push(new kakao.maps.CustomOverlay({ map, position: pos, content: node, yAnchor: 1.1, clickable: true }));
+  });
+  if (path.length > 1) line = new kakao.maps.Polyline({ map, path, strokeWeight: 4, strokeColor: dayColor(curDay), strokeOpacity: .75, strokeStyle: "shortdash" });
+  if (fit) {
+    if (path.length > 1) map.setBounds(bounds, 60, 40, 40, 40);
+    else if (path.length === 1) { map.setLevel(5); map.setCenter(path[0]); }
+  }
+}
+function focusOn(x) { if (map) { map.setLevel(4); map.panTo(new kakao.maps.LatLng(x.lat, x.lng)); } }
+
+$("mapSize").onclick = () => {
+  const big = document.body.classList.toggle("bigmap");
+  $("mapSize").textContent = big ? "지도 작게" : "지도 크게";
+  setTimeout(() => { if (map) { map.relayout(); drawMap(true); } }, 230);
+};
+
+/* ---------- 장소 검색 (카카오 장소 검색) ---------- */
+const CHIPS = ["맛집", "카페", "회", "초당순두부", "장칼국수", "관광명소", "해변", "시장", "숙소"];
+CHIPS.forEach(c => $("chips").append(el("button", { class: "chip", type: "button", text: c, onclick: () => { $("q").value = c; doSearch(); } })));
+
+$("addBtn").onclick = () => {
+  if (!window.kakao || !map) return toast("카카오 지도 키 설정이 필요해요");
+  $("search").hidden = false;
+  if (!smap) smap = new kakao.maps.Map($("smap"), { center: map.getCenter(), level: 8 });
+  else smap.relayout();
+  $("q").focus();
+};
+$("sclose").onclick = () => { $("search").hidden = true; };
+$("sform").addEventListener("submit", e => { e.preventDefault(); doSearch(); });
+
+function doSearch() {
+  const q = $("q").value.trim(); if (!q) return;
+  $("q").blur();
+  const box = $("sres"); box.textContent = ""; box.append(el("div", { class: "empty", text: "검색 중…" }));
+  const center = new kakao.maps.LatLng(HOME.lat, HOME.lng);
+  const done = (data, status, wide) => {
+    if (status === kakao.maps.services.Status.OK && data.length) return showResults(data, wide);
+    if (!wide && status === kakao.maps.services.Status.ZERO_RESULT)   // 강릉 20km 안에 없으면 전국 검색
+      return places.keywordSearch(q, (d, s) => done(d, s, true), { size: 15 });
+    box.textContent = "";
+    box.append(el("div", { class: "empty", text: status === kakao.maps.services.Status.ZERO_RESULT ? "검색 결과가 없어요. 다른 검색어로 찾아보세요." : "검색에 실패했어요. 잠시 후 다시 시도하세요." }));
+  };
+  places.keywordSearch(q, (d, s) => done(d, s, false), { location: center, radius: 20000, size: 15 });
+}
+
+function showResults(data, wide) {
+  const box = $("sres"); box.textContent = "";
+  soverlays.forEach(o => o.setMap(null)); soverlays = [];
+  if (wide) box.append(el("div", { class: "meta", style: "padding:10px 0;color:var(--sub);font-size:12.5px", text: "강릉역 반경 20km 안에 결과가 없어 전국에서 찾았어요." }));
+  const bounds = new kakao.maps.LatLngBounds();
+  data.forEach((p, i) => {
+    const lat = parseFloat(p.y), lng = parseFloat(p.x), pos = new kakao.maps.LatLng(lat, lng);
+    bounds.extend(pos);
+    soverlays.push(new kakao.maps.CustomOverlay({ map: smap, position: pos, content: pin(i + 1, "#0d5c7a", true), yAnchor: 1.1 }));
+    const cat = (p.category_name || "").split(" > ").pop();
+    const exists = () => items.some(x => x.day === curDay && x.kid === p.id);
+    const btn = el("button", { class: "addb" + (exists() ? " done" : ""), type: "button", text: exists() ? "추가됨" : "추가" });
+    btn.onclick = () => {
+      if (exists()) return toast("이미 Day " + curDay + "에 있어요");
+      store.add({ day: curDay, ord: Date.now(), type: "place", kid: p.id, name: p.place_name, cat,
+        addr: p.road_address_name || p.address_name || "", lat, lng, url: p.place_url || "", phone: p.phone || "", time: "", memo: "" });
+      btn.textContent = "추가됨"; btn.classList.add("done");
+      toast("Day " + curDay + "에 추가했어요");
+    };
+    box.append(el("div", { class: "res" },
+      el("button", { class: "body", type: "button", onclick: () => { smap.setLevel(4); smap.panTo(pos); } },
+        el("div", { class: "nm", text: (i + 1) + ". " + p.place_name }),
+        el("div", { class: "meta", text: [cat, p.road_address_name || p.address_name].filter(Boolean).join(" · ") })),
+      p.place_url ? el("a", { href: p.place_url, target: "_blank", rel: "noopener", text: "상세" }) : null, btn));
+  });
+  smap.setBounds(bounds, 40, 30, 30, 30);
+}
+
+/* ---------- 장소·메모 편집 시트 ---------- */
+function closeSheet() { $("sheetBg").hidden = true; }
+$("sheetBg").addEventListener("click", e => { if (e.target === $("sheetBg")) closeSheet(); });
+
+function openSheet(x) {
+  const isNew = !x, place = x && x.type === "place";
+  const s = $("sheet"); s.textContent = "";
+  const time = el("input", { id: "fTime", type: "time", value: x ? (x.time || "") : "" });
+  const day = el("select", { id: "fDay" });
+  DAYS.forEach(d => { const o = el("option", { value: d.n, text: "Day " + d.n + " (" + d.date + " " + d.dow + ")" }); if (d.n === (x ? x.day : curDay)) o.selected = true; day.append(o); });
+  const memo = el("textarea", { id: "fMemo", placeholder: place ? "예약 시간, 주문할 메뉴, 주차 정보 등" : "예: 체크인 15시, 강릉역 렌터카 픽업" });
+  memo.value = x ? (x.memo || "") : "";
+  s.append(el("h2", { text: isNew ? "메모 추가" : place ? x.name : "메모" }));
+  if (place) {
+    if (x.addr || x.phone) s.append(el("div", { class: "meta", style: "font-size:13px;color:var(--sub)", text: [x.addr, x.phone].filter(Boolean).join(" · ") }));
+    const links = el("div", { class: "links" });
+    if (x.url) links.append(el("a", { href: x.url, target: "_blank", rel: "noopener", text: "카카오맵 상세" }));
+    if (hasPos(x)) links.append(el("a", { href: "https://map.kakao.com/link/to/" + encodeURIComponent(x.name) + "," + x.lat + "," + x.lng, target: "_blank", rel: "noopener", text: "길찾기" }));
+    links.append(el("a", { href: "https://map.naver.com/p/search/" + encodeURIComponent("강릉 " + x.name), target: "_blank", rel: "noopener", text: "네이버지도" }));
+    s.append(links);
+  }
+  s.append(el("div", { class: "row" }, el("label", {}, document.createTextNode("시간 (선택)"), time), el("label", {}, document.createTextNode("날짜"), day)),
+    el("label", {}, document.createTextNode("메모"), memo));
+  const btns = el("div", { class: "btns" });
+  if (!isNew) btns.append(el("button", { class: "b3", type: "button", text: "삭제", onclick: () => { store.remove(x.id); closeSheet(); toast("삭제했어요"); } }));
+  btns.append(el("button", { class: "b2", type: "button", text: "닫기", onclick: closeSheet }),
+    el("button", { class: "b1", type: "button", text: "저장", onclick: () => {
+      const d = Number(day.value), m = memo.value.trim();
+      if (isNew) {
+        if (!m) return toast("메모 내용을 입력하세요");
+        store.add({ day: d, ord: Date.now(), type: "memo", name: "", time: time.value, memo: m });
+      } else {
+        const p = { time: time.value, memo: m };
+        if (d !== x.day) { p.day = d; p.ord = Date.now(); }
+        store.update(x.id, p);
+      }
+      closeSheet(); toast("저장했어요");
+    } }));
+  s.append(btns);
+  $("sheetBg").hidden = false;
+}
+$("memoBtn").onclick = () => openSheet(null);
+
+/* ---------- 링크 공유 ---------- */
+$("shareBtn").onclick = async () => {
+  const url = location.href.split("#")[0];
+  try { await navigator.clipboard.writeText(url); toast("링크를 복사했어요. 친구에게 보내면 바로 같이 편집할 수 있어요."); }
+  catch (e) { toast(url); }
+};
+
+/* ---------- 시작 ---------- */
+$("title").textContent = TRIP_TITLE;
+$("range").textContent = DAYS[0].date + " (" + DAYS[0].dow + ") – " + DAYS[DAYS.length - 1].date + " (" + DAYS[DAYS.length - 1].dow + ")";
+if (!store.shared) {
+  setSync(false, "", "이 기기에만 저장");
+  notice("<b>공유가 꺼져 있어요.</b> 파일 맨 위 <code>FIREBASE_CONFIG</code>를 채우면 링크를 가진 모두가 실시간으로 함께 편집합니다. 지금은 이 기기에만 저장돼요.");
+}
+let first = true;
+store.listen(arr => { items = arr; render(first); first = false; });
+
+function kakaoFail() {
+  notice("<b>카카오 지도를 불러오지 못했어요.</b> ① 파일 맨 위 <code>KAKAO_JS_KEY</code>에 JavaScript 키를 넣고 ② 카카오 개발자 콘솔의 웹 사이트 도메인에 <code>" +
+    location.origin.replace(/</g, "&lt;") + "</code> 를 등록하고 ③ 앱 설정에서 카카오맵 사용을 켰는지 확인하세요.");
+}
+if (!isSet(KAKAO_JS_KEY)) kakaoFail();
+else {
+  const sc = document.createElement("script");
+  sc.src = "https://dapi.kakao.com/v2/maps/sdk.js?appkey=" + encodeURIComponent(KAKAO_JS_KEY) + "&libraries=services&autoload=false";
+  sc.onerror = kakaoFail;
+  sc.onload = () => kakao.maps.load(() => {
+    map = new kakao.maps.Map($("map"), { center: new kakao.maps.LatLng(HOME.lat, HOME.lng), level: 8 });
+    map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
+    places = new kakao.maps.services.Places();
+    window.addEventListener("resize", () => map.relayout());
+    drawMap(true);
+  });
+  document.head.append(sc);
+}
+</script>
+</body>
+</html>
