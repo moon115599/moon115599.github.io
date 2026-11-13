@@ -11,17 +11,12 @@
    ============================================================ */
 
 // 1) 카카오 개발자 콘솔 > 내 애플리케이션 > 앱 키 > "JavaScript 키"
-const KAKAO_JS_KEY = "여기에_카카오_JavaScript_키";
+const KAKAO_JS_KEY = "e5f61f21ef84d3558331277d121bae0c";
 
-// 2) Firebase 콘솔 > 프로젝트 설정 > 내 앱(웹) > firebaseConfig 에서 복사
-//    databaseURL 이 반드시 있어야 합니다 (Realtime Database 생성 후 표시됨).
-const FIREBASE_CONFIG = {
-  apiKey: "여기에_apiKey",
-  databaseURL: "여기에_databaseURL",
-  projectId: "여기에_projectId"
-};
+// 2) 구글 스프레드시트 Apps Script 웹 앱 URL (https://script.google.com/macros/s/.../exec)
+const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbxb_KQvgMi0ZkXp8mX_26CC2xwsFl8HWyD7py8a1_HtzR-KR8TWKdOJj8ichj1H0MExbA/exec";
 
-// 3) 여행 정보. TRIP_ID 는 일정 저장 주소라서 남이 추측하기 어려운 값으로 두세요.
+// 3) 여행 정보 (TRIP_ID 는 시트 미연결 시 기기 내 저장 이름으로만 쓰입니다)
 const TRIP_ID = "gangneung-270115-k7q2x9";
 const TRIP_TITLE = "강릉 여행";
 const DAYS = [
@@ -31,8 +26,6 @@ const DAYS = [
 ];
 const HOME = { lat: 37.7636, lng: 128.8996 }; // 강릉역 (지도 시작 위치, 검색 기준점)
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <style>
 :root{
   /* 겨울 동해: 짙은 바다색 바탕 글자, 날짜별 핀 색 3가지. 위는 지도, 아래는 일정 타임라인. */
@@ -199,20 +192,41 @@ function toast(msg) {
 }
 function notice(html) { const n = $("notice"); n.innerHTML = html; n.hidden = false; }
 
-/* ---------- 저장소: Firebase 실시간 DB (없으면 이 기기에만 저장) ---------- */
+/* ---------- 저장소: 구글 스프레드시트 (없으면 이 기기에만 저장) ---------- */
 const store = (() => {
-  const useFb = isSet(FIREBASE_CONFIG.databaseURL) && window.firebase;
-  if (useFb) {
-    firebase.initializeApp(FIREBASE_CONFIG);
-    const ref = firebase.database().ref("trips/" + TRIP_ID + "/items");
-    firebase.database().ref(".info/connected").on("value", s => setSync(!!s.val(), "실시간 공유 중", "오프라인"));
-    const fail = e => toast("저장 실패: " + (e && e.code === "PERMISSION_DENIED" ? "Firebase 규칙을 확인하세요" : "네트워크를 확인하세요"));
+  if (isSet(SHEET_API_URL)) {
+    let arr = [], cb = () => {}, queue = Promise.resolve(), pending = 0, ver = 0, failed = false;
+    const emit = () => cb(arr.slice());
+    const norm = list => (list || []).map(o => ({ ...o, day: Number(o.day), ord: Number(o.ord), lat: o.lat == null ? NaN : Number(o.lat), lng: o.lng == null ? NaN : Number(o.lng) }));
+    const status = () => failed ? setSync(false, "", "연결 안 됨") : setSync(true, pending ? "저장 중…" : "시트와 동기화됨", "");
+    async function pull() {
+      if (pending || document.hidden) return;
+      const v = ver;
+      try {
+        const r = await fetch(SHEET_API_URL, { cache: "no-store" }); const j = await r.json();
+        failed = !j.ok;
+        if (j.ok && v === ver && !pending) { arr = norm(j.items); emit(); }
+      } catch (e) { failed = true; }
+      status();
+    }
+    function send(body) {
+      pending++; ver++; status();
+      queue = queue.then(async () => {
+        try {
+          const r = await fetch(SHEET_API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
+          const j = await r.json(); if (!j.ok) throw new Error(j.error);
+          failed = false; pending--;
+          if (!pending) { arr = norm(j.items); emit(); }
+        } catch (e) { pending--; failed = true; toast("저장 실패: 네트워크나 웹 앱 배포 설정을 확인하세요"); }
+        status();
+      });
+    }
     return {
       shared: true,
-      listen(cb) { ref.on("value", s => { const v = s.val() || {}; cb(Object.entries(v).map(([id, o]) => ({ ...o, id }))); }, fail); },
-      add(o) { return ref.push(o).catch(fail); },
-      update(id, p) { return ref.child(id).update(p).catch(fail); },
-      remove(id) { return ref.child(id).remove().catch(fail); }
+      listen(f) { cb = f; emit(); pull(); setInterval(pull, 5000); document.addEventListener("visibilitychange", pull); },
+      add(o) { const item = { ...o, id: "i" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7) }; arr.push(item); emit(); send({ action: "add", item }); },
+      update(id, p) { arr = arr.map(x => x.id === id ? { ...x, ...p } : x); emit(); send({ action: "update", id, patch: p }); },
+      remove(id) { arr = arr.filter(x => x.id !== id); emit(); send({ action: "remove", id }); }
     };
   }
   const KEY = "trip:" + TRIP_ID;
@@ -416,7 +430,7 @@ $("memoBtn").onclick = () => openSheet(null);
 /* ---------- 링크 공유 ---------- */
 $("shareBtn").onclick = async () => {
   const url = location.href.split("#")[0];
-  try { await navigator.clipboard.writeText(url); toast("링크를 복사했어요. 친구에게 보내면 바로 같이 편집할 수 있어요."); }
+  try { await navigator.clipboard.writeText(url); toast("링크를 복사했어요. 친구에게 보내면 같이 편집할 수 있어요."); }
   catch (e) { toast(url); }
 };
 
@@ -425,7 +439,7 @@ $("title").textContent = TRIP_TITLE;
 $("range").textContent = DAYS[0].date + " (" + DAYS[0].dow + ") – " + DAYS[DAYS.length - 1].date + " (" + DAYS[DAYS.length - 1].dow + ")";
 if (!store.shared) {
   setSync(false, "", "이 기기에만 저장");
-  notice("<b>공유가 꺼져 있어요.</b> 파일 맨 위 <code>FIREBASE_CONFIG</code>를 채우면 링크를 가진 모두가 실시간으로 함께 편집합니다. 지금은 이 기기에만 저장돼요.");
+  notice("<b>공유가 꺼져 있어요.</b> 파일 맨 위 <code>SHEET_API_URL</code>을 채우면 링크를 가진 모두가 함께 편집합니다. 지금은 이 기기에만 저장돼요.");
 }
 let first = true;
 store.listen(arr => { items = arr; render(first); first = false; });
